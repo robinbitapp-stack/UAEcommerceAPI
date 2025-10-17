@@ -256,7 +256,7 @@ app.get('/getCategoriesProduct', async (req, res) => {
       });
     }
 
-    let cachedCategoryProducts = cache.get(`category_${category}`);
+    let cachedCategoryProducts = cacheCatProducts.get(`category_${category}`);
     let source = 'cache';
 
     if (!cachedCategoryProducts) {
@@ -596,7 +596,7 @@ app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
     if (categories && categories.length > 0) {
       console.log('Fetched from cache');
       res.status(200).json({ success: true, source: 'cache', totalCategories: categories.length, categories });
-      syncWooCategories('getAllCategoriesRoute route');
+      //syncWooCategories('getAllCategoriesRoute route');
       return;
     }
 
