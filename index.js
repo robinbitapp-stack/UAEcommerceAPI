@@ -661,7 +661,7 @@ async function syncCategoryProducts(categoryId) {
 
     const cachedCategoryProducts = allProducts.filter(p => p.price && p.stock_status === 'instock');
     console.error(`Category Products Synced ${categoryId}  : ${cachedCategoryProducts.length},  ${cachedCategoryProducts.result} products:`);
-    const isSuccess = await cache.set(`category_${categoryId}`, cachedCategoryProducts, 1800);
+    const isSuccess = await cache.set(`category_${categoryId}`, cachedCategoryProducts, 7200);
     if (isSuccess) {
       console.log(`✅ [syncWooCategories] Redis cached ${cachedCategoryProducts.length} categories`);
     } else {
