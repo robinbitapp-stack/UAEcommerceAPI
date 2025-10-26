@@ -356,7 +356,7 @@ async function syncCategoryProducts(categoryId) {
   }
 }
 
-cron.schedule('*/15 * * * *', () => {
+cron.schedule('*/60 * * * *', () => {
   console.log('🕒 Scheduled 15-min sync triggered...');
   syncWooData('cron schedule');
   syncWooCategories('cron schedule');
@@ -375,7 +375,7 @@ async function initializeApp() {
 }
 
 
-initializeApp();
+//initializeApp();
 
 
 app.get('/',async(req,res)=>{
