@@ -617,7 +617,7 @@ async function syncWooCategories(caller = 'unknown') {
     console.log(`✅ [syncWooCategories] Processed ${categoriesArray.length} categories with images`);
     
     if (categoriesArray.length > 0) {
-      const cacheSuccess = await cache.set('allCategories', categoriesArray);
+      const cacheSuccess = await cache.set('allCategories', categoriesArray,7200);
       if (cacheSuccess) {
         console.log(`💾 [syncWooCategories] Cached ${categoriesArray.length} categories`);
       } else {
