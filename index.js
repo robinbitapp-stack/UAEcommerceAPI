@@ -63,12 +63,18 @@ const cache = {
       console.log(`💾 [cache-set] Setting key: ${key}, Type: ${typeof value}, Length: ${value?.length}`);
 
       try {
-        const oldKeys = await redis.keys(`${key}_chunk_*`);
-        if (oldKeys.length > 0) {
-          await redis.del(oldKeys);
-          console.log(`✅ [cache-set] Deleted old chunks: ${oldKeys.join(', ')}`);
+        const oldChunkKeys = await redis.keys(`${key}_chunk_*`);
+        const oldMetadataKey = `${key}_metadata`;
+        const oldMainKey = key;
+
+        const allKeysToDelete = [...oldChunkKeys, oldMetadataKey, oldMainKey];
+
+        if (allKeysToDelete.length > 0) {
+          const deletedCount = await redis.del(allKeysToDelete);
+          console.log(`🗑️ [cache-set] Deleted ${deletedCount} old keys: ${allKeysToDelete.join(', ')}`);
+        } else {
+          console.log(`🔍 [cache-set] No old keys found to delete for "${key}"`);
         }
-        await redis.del(`${key}_metadata`);
       } catch (delErr) {
         console.error(`❌ [cache-set] Error deleting old keys for "${key}":`, delErr.message);
       }
@@ -765,18 +771,29 @@ const getRequiredChunks = (skip, limit, chunkSize = 100) => {
 
 async function deleteOldChunks(key) {
   try {
+    console.log(`🔍 Searching for chunks with pattern: ${key}_*`);
+    
     // Get all keys matching the pattern
     const keys = await redis.keys(`${key}_*`);
+    
     if (keys.length === 0) {
-      console.log(`No old chunks found for key: ${key}`);
-      return;
+      console.log(`❌ No old chunks found for key: ${key}`);
+      return { deleted: 0, keys: [] };
     }
 
-    // Delete all at once
-    await redis.del(keys);
-    console.log(`✅ Deleted all old chunks and metadata for "${key}": ${keys.join(', ')}`);
+    console.log(`📋 Found ${keys.length} keys to delete:`, keys);
+    
+    // Delete all at once and get the count
+    const deletedCount = await redis.del(...keys);
+    
+    console.log(`✅ Redis confirmed deletion of ${deletedCount} keys`);
+    console.log(`🗑️ Deleted chunks for "${key}": ${keys.join(', ')}`);
+    
+    return { deleted: deletedCount, keys };
+    
   } catch (err) {
     console.error(`❌ Error deleting old chunks for "${key}":`, err.message);
+    throw err; // Re-throw to handle in route
   }
 }
 
@@ -799,13 +816,52 @@ try {
 
 app.get('/clear-products-cache', async (req, res) => {
   try {
-    //await cache.del('allCategories');
-    await deleteOldChunks('allProducts');
-    //await cache.del('category_26');
-    //await cache.del('category_27');
-    //await cache.del('category_26');
-    res.json({ success: true, message: 'Cache cleared successfully' });
+    console.log('=== STARTING CACHE CLEAR ===');
+    
+    // Check BEFORE deletion
+    const existsBefore = await redis.exists('allProducts_chunk_8');
+    console.log('allProducts_chunk_8 exists BEFORE:', existsBefore);
+    
+    // Get all matching keys before
+    const keysBefore = await redis.keys('allProducts*');
+    console.log('Keys BEFORE deletion:', keysBefore);
+    
+    // Delete using enhanced function
+    const result = await deleteOldChunks('allProducts');
+    
+    // Small delay for Redis to process
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Check AFTER deletion  
+    const existsAfter = await redis.exists('allProducts_chunk_8');
+    console.log('allProducts_chunk_8 exists AFTER:', existsAfter);
+    
+    // Get all matching keys after
+    const keysAfter = await redis.keys('allProducts*');
+    console.log('Keys AFTER deletion:', keysAfter);
+    
+    // Force check with get
+    const chunk8Value = await redis.get('allProducts_chunk_8');
+    console.log('allProducts_chunk_8 value after deletion:', chunk8Value ? 'EXISTS' : 'NULL');
+    
+    res.json({ 
+      success: existsAfter === 0,
+      deletedCount: result.deleted,
+      before: {
+        exists: existsBefore,
+        keys: keysBefore
+      },
+      after: {
+        exists: existsAfter,
+        keys: keysAfter
+      },
+      message: existsAfter === 0 ? 
+        'Cache cleared successfully' : 
+        `Cache deletion failed - key still exists. Deleted ${result.deleted} keys but chunk_8 persists.`
+    });
+    
   } catch (err) {
+    console.error('Error in clear-products-cache:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
