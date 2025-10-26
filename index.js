@@ -19,19 +19,97 @@ const api = new WooCommerceRestApi({
 
 const apiAxios = require('./woocommerce'); 
 
+// Redis setup
+const Redis = require('ioredis');
+const redis = new Redis({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: process.env.REDIS_PORT || 6379,
+  password: process.env.REDIS_PASSWORD || undefined,
+  retryDelayOnFailover: 100,
+  maxRetriesPerRequest: 3,
+  enableReadyCheck: true,
+  lazyConnect: true
+});
+
+// Redis connection events
+redis.on('connect', () => console.log('✅ Redis connected'));
+redis.on('error', (err) => console.error('❌ Redis error:', err));
+redis.on('ready', () => console.log('🚀 Redis ready'));
+redis.on('end', () => console.log('🔌 Redis disconnected'));
+
+
 //Cache&Sync
-const NodeCache = require('node-cache');
 const cron = require('node-cron');
 const axios = require('axios');
-//const PQueue = require('p-queue').default;
-const cache = new NodeCache({ stdTTL: 3600, checkperiod: 300 });
-const categoryCache = new NodeCache({ stdTTL: 3600, checkperiod: 300 });
-const cacheCatProducts = new NodeCache({ stdTTL: 3600, checkperiod: 300 });
 
 let productSyncInProgress = false;
 let categorySyncInProgress = false;
 
+const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+const cache = {
+  set: async (key, value, ttl = 3600) => {
+    try {
+      const data = JSON.stringify(value);
+      await axios.post(`${UPSTASH_REDIS_REST_URL}/set/${key}/${encodeURIComponent(data)}`, null, {
+        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
+        params: { ex: ttl } 
+      });
+      return true;
+    } catch (err) {
+      console.error(`❌ Redis set error for key ${key}:`, err.message);
+      return false;
+    }
+  },
+
+  get: async (key) => {
+    try {
+      const res = await axios.get(`${UPSTASH_REDIS_REST_URL}/get/${key}`, {
+        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
+      });
+      if (res.data.result) {
+        return JSON.parse(res.data.result);
+      }
+      return null;
+    } catch (err) {
+      console.error(`❌ Redis get error for key ${key}:`, err.message);
+      return null;
+    }
+  },
+
+  del: async (key) => {
+    try {
+      await axios.post(`${UPSTASH_REDIS_REST_URL}/del/${key}`, null, {
+        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
+      });
+      return true;
+    } catch (err) {
+      console.error(`❌ Redis delete error for key ${key}:`, err.message);
+      return false;
+    }
+  },
+
+  exists: async (key) => {
+    try {
+      const res = await axios.get(`${UPSTASH_REDIS_REST_URL}/exists/${key}`, {
+        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
+      });
+      return res.data.result === 1;
+    } catch (err) {
+      console.error(`❌ Redis exists error for key ${key}:`, err.message);
+      return false;
+    }
+  }
+};
+
 async function syncWooData(caller = 'unknown') {
+  if (productSyncInProgress) {
+    console.log(`⏳ [syncWooData] Already in progress, called from ${caller}, skipping...`);
+    return;
+  }
+
+  productSyncInProgress = true;
   try {
     console.log(`🌀 [syncWooData] Called from: ${caller} — Syncing WooCommerce products...`);
     let allProducts = [];
@@ -57,15 +135,21 @@ async function syncWooData(caller = 'unknown') {
 
     const validProducts = allProducts.filter(p => p.stock_status === 'instock' && parseFloat(p.price || 0) > 0);
 
-    if (validProducts.length > 0) {  // ✅ Only update cache if we have valid products
-      cache.set('allProducts', validProducts);
-      console.log(`✅ [syncWooData] Cached ${validProducts.length} valid products`);
+    if (validProducts.length > 0) {
+      const cacheSuccess = await cache.set('allProducts', validProducts);
+      if (cacheSuccess) {
+        console.log(`✅ [syncWooData] Redis cached ${validProducts.length} valid products`);
+      } else {
+        console.error(`❌ [syncWooData] Failed to cache products in Redis`);
+      }
     } else {
       console.warn(`⚠️ [syncWooData] No valid products fetched, keeping old cache`);
     }
 
   } catch (err) {
     console.error(`❌ [syncWooData] WooCommerce sync failed (called from ${caller}): ${err.message}`);
+  } finally {
+    productSyncInProgress = false;
   }
 }
 
@@ -100,9 +184,13 @@ async function syncWooCategories(caller = 'unknown') {
 
     await queue.onIdle();
     const categoriesArray = Object.values(categoryMap);
-    if (categoriesArray.length > 0) {  // ✅ Only update cache if we got valid categories
-      categoryCache.set('allCategories', categoriesArray);
-      console.log(`✅ [syncWooCategories] Cached ${categoriesArray.length} categories`);
+    if (categoriesArray.length > 0) {
+      const cacheSuccess = await cache.set('allCategories', categoriesArray);
+      if (cacheSuccess) {
+        console.log(`✅ [syncWooCategories] Redis cached ${categoriesArray.length} categories`);
+      } else {
+        console.error(`❌ [syncWooCategories] Failed to cache categories in Redis`);
+      }
     } else {
       console.warn(`⚠️ [syncWooCategories] No valid categories fetched, keeping old cache`);
     }
@@ -114,6 +202,38 @@ async function syncWooCategories(caller = 'unknown') {
   }
 }
 
+async function syncCategoryProducts(categoryId) {
+  try {
+    const allProducts = [];
+    let page = 1;
+
+    while (true) {
+      const response = await apiAxios.get('products', {
+        params: {
+          per_page: 100,
+          page: page,
+          category: categoryId,
+          min_price: 1
+        },
+        timeout: 10000
+      });
+
+      if (!response.data || response.data.length === 0) break;
+
+      allProducts.push(...response.data);
+      if (response.data.length < 100) break;
+      page++;
+    }
+
+    const cachedCategoryProducts = allProducts.filter(p => p.price && p.stock_status === 'instock');
+    await cache.set(`category_${categoryId}`, cachedCategoryProducts, 1800); // 30 minutes TTL
+
+    return cachedCategoryProducts;
+  } catch (error) {
+    console.error(`❌ Error syncing category ${categoryId} products:`, error.message);
+    throw error;
+  }
+}
 
 cron.schedule('*/15 * * * *', () => {
   console.log('🕒 Scheduled 15-min sync triggered...');
@@ -121,8 +241,19 @@ cron.schedule('*/15 * * * *', () => {
   syncWooCategories('cron schedule');
 });
 
-//syncWooData('Raw');
-//syncWooCategories('Raw');
+async function initializeApp() {
+  try {
+    await redis.connect();
+    console.log('🔄 Initial data sync starting...');
+    await syncWooData('app startup');
+    await syncWooCategories('app startup');
+    console.log('✅ App initialization complete');
+  } catch (err) {
+    console.error('❌ App initialization failed:', err.message);
+  }
+}
+
+initializeApp();
 
 app.get('/',async(req,res)=>{
 try {
@@ -161,7 +292,7 @@ app.get('/getallProducts', async (req, res) => {
     const skip = parseInt(req.query.skip) || 0;
     const limit = 20;
 
-    const cachedProducts = cache.get('allProducts');
+    const cachedProducts = await cache.get('allProducts');
     if (cachedProducts && cachedProducts.length > 0) {
       const products = cachedProducts.slice(skip, skip + limit);
       console.log(`Fetched from synced cache.`);
@@ -256,35 +387,12 @@ app.get('/getCategoriesProduct', async (req, res) => {
       });
     }
 
-    let cachedCategoryProducts = cacheCatProducts.get(`category_${category}`);
+    let cachedCategoryProducts = await cache.get(`category_${category}`);
     let source = 'cache';
 
     if (!cachedCategoryProducts) {
       source = 'api';
-      const allProducts = [];
-      let page = 1;
-
-      while (true) {
-        const response = await apiAxios.get('products', {
-          params: {
-            per_page: 100,
-            page: page,
-            category: category,
-            min_price: 1
-          },
-          timeout: 10000
-        });
-
-        if (!response.data || response.data.length === 0) break;
-
-        allProducts.push(...response.data);
-
-        if (response.data.length < 100) break;
-        page++;
-      }
-
-      cachedCategoryProducts = allProducts.filter(p => p.price && p.stock_status === 'instock');
-      cacheCatProducts.set(`category_${category}`, cachedCategoryProducts);
+      cachedCategoryProducts = await syncCategoryProducts(category);
     }
 
     const products = cachedCategoryProducts.slice(skip, skip + limit);
@@ -591,7 +699,7 @@ app.get('/getCategoriesProductWithSortFilter', async (req, res) => {
 //HomeCategories
 app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
   try {
-    let categories = categoryCache.get('allCategories');
+    let categories = await cache.get('allCategories');
 
     if (categories && categories.length > 0) {
       console.log('Fetched from cache');
