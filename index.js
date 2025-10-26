@@ -113,46 +113,97 @@ async function syncWooData(caller = 'unknown') {
   }
 
   productSyncInProgress = true;
+  let allProducts = [];
+  let successCount = 0;
+  let failCount = 0;
+  
   try {
-    console.log(`🌀 [syncWooData] Called from: ${caller} — Syncing WooCommerce products...`);
-    let allProducts = [];
+    console.log(`🌀 [syncWooData] Called from: ${caller} — Starting WooCommerce products sync...`);
+    
+    console.log(`📊 [syncWooData] Fetching total product count...`);
     const countRes = await api.get('products', { per_page: 100, min_price: 1, timeout: 30000 });
     const totalProducts = parseInt(countRes.headers['x-wp-total'] || 0);
     const totalPages = parseInt(countRes.headers['x-wp-totalpages'] || 1);
+    
+    console.log(`📈 [syncWooData] Total Products: ${totalProducts}, Total Pages: ${totalPages}`);
+    console.log(`🔄 [syncWooData] Starting to fetch ${totalPages} pages...`);
 
     for (let page = 1; page <= totalPages; page++) {
       let retries = 3;
-      while (retries > 0) {
+      let pageSuccess = false;
+      
+      console.log(`📄 [syncWooData] Processing page ${page}/${totalPages}...`);
+      
+      while (retries > 0 && !pageSuccess) {
         try {
+          console.log(`   🔄 [syncWooData] Page ${page} - Attempt ${4 - retries}/3`);
           const response = await api.get('products', { per_page: 100, page, timeout: 30000 });
           allProducts = allProducts.concat(response.data);
+          
+          console.log(`   ✅ [syncWooData] Page ${page} SUCCESS - Got ${response.data.length} products`);
+          successCount++;
+          pageSuccess = true;
+          
+          const progress = ((page / totalPages) * 100).toFixed(1);
+          console.log(`   📊 [syncWooData] Progress: ${progress}% (${page}/${totalPages} pages completed)`);
+          
           break;
+          
         } catch (err) {
           retries--;
-          console.warn(`[syncWooData] Retry ${3 - retries} failed for page ${page}: ${err.message}`);
-          if (retries === 0) throw err;
-          await new Promise(r => setTimeout(r, 2000));
+          console.warn(`   ❌ [syncWooData] Page ${page} - Attempt ${4 - retries}/3 FAILED: ${err.message}`);
+          
+          if (retries === 0) {
+            console.error(`   💥 [syncWooData] Page ${page} - ALL RETRIES FAILED, skipping this page`);
+            failCount++;
+          } else {
+            console.log(`   ⏳ [syncWooData] Retrying page ${page} in 2 seconds...`);
+            await new Promise(r => setTimeout(r, 2000));
+          }
         }
+      }
+      
+      if (page < totalPages) {
+        await new Promise(r => setTimeout(r, 500));
       }
     }
 
+    console.log(`🎯 [syncWooData] SYNC COMPLETED!`);
+    console.log(`   📈 Successfully processed: ${successCount}/${totalPages} pages`);
+    console.log(`   📉 Failed pages: ${failCount}/${totalPages} pages`);
+    console.log(`   📦 Total products fetched: ${allProducts.length}`);
+    
     const validProducts = allProducts.filter(p => p.stock_status === 'instock' && parseFloat(p.price || 0) > 0);
+    
+    console.log(`   ✅ Valid products (in stock & priced): ${validProducts.length}`);
+    console.log(`   🗑️  Invalid products filtered out: ${allProducts.length - validProducts.length}`);
 
     if (validProducts.length > 0) {
       const cacheSuccess = await cache.set('allProducts', validProducts);
       if (cacheSuccess) {
-        console.log(`✅ [syncWooData] Redis cached ${validProducts.length} valid products`);
+        console.log(`💾 [syncWooData] SUCCESS - Cached ${validProducts.length} valid products in Redis`);
       } else {
-        console.error(`❌ [syncWooData] Failed to cache products in Redis`);
+        console.error(`❌ [syncWooData] FAILED - Could not cache products in Redis`);
       }
     } else {
-      console.warn(`⚠️ [syncWooData] No valid products fetched, keeping old cache`);
+      console.warn(`⚠️ [syncWooData] WARNING - No valid products fetched, keeping old cache`);
     }
+    
+    console.log(`📋 [syncWooData] FINAL STATISTICS:`);
+    console.log(`   • Total Pages: ${totalPages}`);
+    console.log(`   • Successful Pages: ${successCount}`);
+    console.log(`   • Failed Pages: ${failCount}`);
+    console.log(`   • Success Rate: ${((successCount / totalPages) * 100).toFixed(1)}%`);
+    console.log(`   • Total Products Fetched: ${allProducts.length}`);
+    console.log(`   • Valid Products: ${validProducts.length}`);
+    console.log(`   • Cache Status: ${validProducts.length > 0 ? 'UPDATED' : 'UNCHANGED'}`);
 
   } catch (err) {
-    console.error(`❌ [syncWooData] WooCommerce sync failed (called from ${caller}): ${err.message}`);
+    console.error(`💥 [syncWooData] CRITICAL ERROR (called from ${caller}): ${err.message}`);
+    console.error(`   Stack: ${err.stack}`);
   } finally {
     productSyncInProgress = false;
+    console.log(`🏁 [syncWooData] Sync process finished. Lock released.`);
   }
 }
 
