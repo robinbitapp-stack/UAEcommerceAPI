@@ -3,6 +3,7 @@ const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
 const app = express();
 const PORT = process.env.PORT || 3000;
 const cheerio = require('cheerio');
+const axios = require('axios');
 const FORCE_NGN_CURRENCY = '&currency=NGN';
 require('dotenv').config();
 const { Redis } = require('@upstash/redis');
@@ -20,6 +21,14 @@ const api = new WooCommerceRestApi({
 });
 
 const apiAxios = require('./woocommerce'); 
+
+const apiAxio = axios.create({
+  baseURL: 'https://updateavenues.com/wp-json/wc/v3/',
+  auth: {
+    username: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+    password: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+  }
+});
 
 // Redis setup
 //const Redis = require('ioredis');
@@ -41,7 +50,6 @@ const redis = new Redis({
 
 //Cache&Sync
 const cron = require('node-cron');
-const axios = require('axios');
 
 let productSyncInProgress = false;
 let categorySyncInProgress = false;
@@ -900,7 +908,7 @@ app.get('/getCategoriesProduct', async (req, res) => {
 
       console.log("Fetching products for category:", category, "Page:", page);
 
-      const response = await apiAxios.get('products', {
+      const response = await apiAxio.get('products', {
         params: {
           per_page: limit,
           page: page,
