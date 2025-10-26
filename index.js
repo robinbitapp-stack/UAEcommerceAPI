@@ -537,9 +537,10 @@ app.get('/getCategoriesProduct', async (req, res) => {
 
     cachedCategoryProducts = Array.isArray(cachedCategoryProducts) ? cachedCategoryProducts : [];
 
-    const check = await cache.get(key);
-    const arrayCheck = Array.isArray(check) ? check : [];
-    const products = arrayCheck.slice(skip, skip + limit);
+    //const check = await cache.get(key);
+    //const arrayCheck = Array.isArray(check) ? check : [];
+
+    const products = cachedCategoryProducts.slice(skip, skip + limit);
 
     res.status(200).json({
       success: true,
