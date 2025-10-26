@@ -147,6 +147,76 @@ const cache = {
     }
   },
 
+  getP: async (key, skip, limit) => {
+    try {
+      console.log(`🔍 [cache-get] Getting key: ${key}`);
+      
+      const metadata = await redis.get(`${key}_metadata`);
+      
+      if (metadata) {
+        console.log(`📦 [cache] Loading chunked data (${metadata.totalChunks} chunks)...`);
+        const allChunks = [];
+        
+        const total = (skip+limit);
+        const chunkNumber = getChunkNumber(skip);
+        const isMoreNeeded = isCrossingChunkBoundary(skip,limit);
+        const place = total;
+        const chunkInfo = getRequiredChunks(skip, limit);
+        console.log(`chunkNumber : ${chunkNumber}`);
+        console.log(`isMoreNeeded : ${isMoreNeeded}`);
+        console.log(`place : ${place}`);
+        console.log(`chunkInfo : ${JSON.stringify(chunkInfo)}`);
+        const chunksNeeded = chunkInfo.chunksNeeded;
+        const totalChunks = chunkInfo.totalChunksNeeded;
+        const startChunk = chunkInfo.startChunk;
+        for (let i = startChunk; i < totalChunks; i++) {
+          const chunk = await redis.get(`${key}_chunk_${i}`);
+          console.log(`   Chunk ${i}: Type: ${typeof chunk}, Length: ${chunk?.length}`);
+          
+          if (chunk) {
+            const parsedChunk = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
+            allChunks.push(...parsedChunk);
+          }
+        }
+        
+        console.log(`✅ [cache] Loaded ${allChunks.length} items`);
+        return allChunks;
+      } else {
+        const data = await redis.get(key);
+        console.log(`🔍 [cache-get] Raw data type: ${typeof data}, Has data: ${!!data}`);
+        
+        if (!data) {
+          console.log(`🔍 [cache-get] No data found for key: ${key}`);
+          return null;
+        }
+        
+        if (typeof data === 'object') {
+          console.log(`🔍 [cache-get] Returning parsed object directly, length: ${data.length}`);
+          return data;
+        }
+        
+        if (typeof data === 'string') {
+          console.log(`🔍 [cache-get] Parsing string data, length: ${data.length}`);
+          try {
+            const parsed = JSON.parse(data);
+            console.log(`🔍 [cache-get] Successfully parsed, type: ${typeof parsed}, length: ${parsed?.length}`);
+            return parsed;
+          } catch (parseErr) {
+            console.error(`❌ JSON parse error for key ${key}:`, parseErr.message);
+            console.error(`   Data sample: ${data.substring(0, 200)}`);
+            return null;
+          }
+        }
+        
+        console.log(`❌ [cache-get] Unknown data type: ${typeof data}`);
+        return null;
+      }
+    } catch (err) {
+      console.error(`❌ Redis get error for key ${key}:`, err.message);
+      return null;
+    }
+  },
+
   del: async (key) => {
     try {
       console.log(`🗑️ [cache-del] Deleting key: ${key}`);
@@ -374,6 +444,32 @@ async function initializeApp() {
   }
 }
 
+const getChunkNumber = (skip, chunkSize = 500) => {
+  return Math.floor(Number(skip) / chunkSize) + 1;
+};
+
+const isCrossingChunkBoundary = (skip, limit, chunkSize = 500) => {
+  const currentChunkStart = Math.floor(skip / chunkSize) * chunkSize;
+  const positionInChunk = skip - currentChunkStart;
+  return (positionInChunk + limit) > chunkSize;
+};
+
+const getRequiredChunks = (skip, limit, chunkSize = 500) => {
+  const startChunk = getChunkNumber(skip, chunkSize);
+  const endIndex = skip + limit - 1;
+  const endChunk = getChunkNumber(endIndex, chunkSize);
+  const chunksNeeded = Array.from({length: endChunk - startChunk + 1}, (_, i) => startChunk + i);
+  
+  return {
+    startChunk,
+    endChunk,
+    chunksNeeded: chunksNeeded,
+    totalChunksNeeded: chunksNeeded.length, 
+    crossesBoundary: endChunk > startChunk
+  };
+};
+
+// Example: skip=490, limit=20 → {startChunk:1, endChunk:2, chunksNeeded:[1,2], crossesBoundary:true}
 
 //initializeApp();
 
@@ -425,7 +521,7 @@ app.get('/getallProducts', async (req, res) => {
     const skip = parseInt(req.query.skip) || 0;
     const limit = 20;
 
-    const cachedProducts = await cache.get('allProducts');
+    const cachedProducts = await cache.getP('allProducts',skip,limit);
     if (cachedProducts && cachedProducts.length > 0) {
       const products = cachedProducts.slice(skip, skip + limit);
       console.log(`Fetched from synced cache.`);
@@ -455,7 +551,7 @@ app.get('/getallProducts', async (req, res) => {
       products: rawProducts
     });
 
-    syncWooData('getallProducts route');
+    //syncWooData('getallProducts route');
   } catch (error) {
     res.status(500).json({
       success: false,
