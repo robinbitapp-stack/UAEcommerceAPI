@@ -1487,6 +1487,55 @@ app.get('/getOnlyOneProduct', async (req, res) => {
   }
 });
 
+app.get('/debug-api', async (req, res) => {
+  const tests = [
+    {
+      name: 'Basic WordPress API',
+      url: 'https://updateavenues.com/wp-json/'
+    },
+    {
+      name: 'WooCommerce Products (No Auth)',
+      url: 'https://updateavenues.com/wp-json/wc/v3/products?per_page=1'
+    },
+    {
+      name: 'WooCommerce with Query Auth',
+      url: 'https://updateavenues.com/wp-json/wc/v3/products?per_page=1&consumer_key=ck_bb500a1fb70b1094d43fd85296ad10c5dada160b&consumer_secret=cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+    },
+    {
+      name: 'WooCommerce Categories',
+      url: 'https://updateavenues.com/wp-json/wc/v3/products/categories?per_page=1'
+    }
+  ];
+
+  const results = [];
+  
+  for (const test of tests) {
+    try {
+      const response = await axios.get(test.url, {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      });
+      results.push({
+        test: test.name,
+        status: '✅ WORKING',
+        statusCode: response.status,
+        data: response.data ? 'Has data' : 'No data'
+      });
+    } catch (error) {
+      results.push({
+        test: test.name,
+        status: '❌ FAILED', 
+        error: error.message,
+        statusCode: error.response?.status
+      });
+    }
+  }
+
+  res.json({ results });
+});
+
 app.listen(PORT,'192.168.29.145', () => {
   console.log(`Server running on http://192.168.29.145:${PORT}`);
 });
