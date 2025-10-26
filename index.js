@@ -54,14 +54,10 @@ const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const cache = {
   set: async (key, value, ttl = 3600) => {
     try {
-      await axios.post(`${UPSTASH_REDIS_REST_URL}/set/${key}`, {
-        value: value,
-        ex: ttl
-      }, {
-        headers: { 
-          Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
+      const data = JSON.stringify(value);
+      await axios.post(`${UPSTASH_REDIS_REST_URL}/set/${key}/${encodeURIComponent(data)}`, null, {
+        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
+        params: { ex: ttl } 
       });
       return true;
     } catch (err) {
@@ -233,7 +229,13 @@ async function syncCategoryProducts(categoryId) {
     }
 
     const cachedCategoryProducts = allProducts.filter(p => p.price && p.stock_status === 'instock');
-    await cache.set(`category_${categoryId}`, cachedCategoryProducts, 1800);
+    console.error(`Category Products Synced ${categoryId}  : ${cachedCategoryProducts.length},  ${cachedCategoryProducts.result} products:`);
+    const isSuccess = await cache.set(`category_${categoryId}`, cachedCategoryProducts, 1800);
+    if (isSuccess) {
+      console.log(`✅ [syncWooCategories] Redis cached ${cachedCategoryProducts.length} categories`);
+    } else {
+      console.error(`❌ [syncWooCategories] Failed to cache categories in Redis`);
+    }
     return cachedCategoryProducts;
   } catch (error) {
     console.error(`❌ Error syncing category ${categoryId} products:`, error.message);
@@ -249,6 +251,7 @@ cron.schedule('*/15 * * * *', () => {
 
 async function initializeApp() {
   try {
+    await redis.connect();
     console.log('🔄 Initial data sync starting...');
     await syncWooData('app startup');
     await syncWooCategories('app startup');
@@ -393,17 +396,26 @@ app.get('/getCategoriesProduct', async (req, res) => {
       });
     }
 
-    let cachedCategoryProducts = await cache.get(`category_${category}`);
+    const key = `category_${String(category).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    let cachedCategoryProducts = await cache.get(key);
     let source = 'cache';
 
-    if (!Array.isArray(cachedCategoryProducts)) {
-      source = 'api';
+    //console.log('cachedCategoryProducts :', cachedCategoryProducts,  cachedCategoryProducts.length);
+
+     if (cachedCategoryProducts && Array.isArray(cachedCategoryProducts)) {
+      cachedCategoryProducts = cachedCategoryProducts;
+    } else {
       cachedCategoryProducts = await syncCategoryProducts(category);
+      source = 'api';
     }
+
+    console.log('cachedCategoryProducts length:', cachedCategoryProducts.length);
 
     cachedCategoryProducts = Array.isArray(cachedCategoryProducts) ? cachedCategoryProducts : [];
 
-    const products = cachedCategoryProducts.slice(skip, skip + limit);
+    const check = await cache.get(key);
+    const arrayCheck = Array.isArray(check) ? check : [];
+    const products = arrayCheck.slice(skip, skip + limit);
 
     res.status(200).json({
       success: true,
