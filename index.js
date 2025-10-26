@@ -900,12 +900,16 @@ app.get('/getCategoriesProduct', async (req, res) => {
 
       console.log("Fetching products for category:", category, "Page:", page);
 
-      const response = await api.get('products', {
+      const response = await apiAxios.get('products', {
         params: {
           per_page: limit,
           page: page,
           category: category,
           min_price: 1
+        },
+        auth: {
+          username: consumerKeyWC,
+          password: consumerSercretWC
         },
         timeout: 10000
       });
