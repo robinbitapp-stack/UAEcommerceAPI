@@ -392,7 +392,7 @@ try {
 
 app.get('/clear-cache', async (req, res) => {
   try {
-    await cache.del('allCategories');
+    //await cache.del('allCategories');
     await cache.del('allProducts');
     res.json({ success: true, message: 'Cache cleared successfully' });
   } catch (err) {
