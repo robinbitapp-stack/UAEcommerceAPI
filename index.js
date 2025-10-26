@@ -618,7 +618,7 @@ async function initializeApp() {
 }
 
 const getChunkNumber = (skip, chunkSize = 100) => {
-  return Math.floor(Number(skip) / chunkSize) + 1;
+  return Math.floor(Number(skip) / chunkSize);
 };
 
 const isCrossingChunkBoundary = (skip, limit, chunkSize = 100) => {
@@ -631,13 +631,14 @@ const getRequiredChunks = (skip, limit, chunkSize = 100) => {
   const startChunk = getChunkNumber(skip, chunkSize);
   const endIndex = skip + limit - 1;
   const endChunk = getChunkNumber(endIndex, chunkSize);
-  const chunksNeeded = Array.from({length: endChunk - startChunk + 1}, (_, i) => startChunk + i);
+  
+  const chunksNeeded = Array.from({ length: endChunk - startChunk + 1 }, (_, i) => startChunk + i);
   
   return {
     startChunk,
     endChunk,
-    chunksNeeded: chunksNeeded,
-    totalChunksNeeded: chunksNeeded.length, 
+    chunksNeeded,
+    totalChunksNeeded: chunksNeeded.length,
     crossesBoundary: endChunk > startChunk
   };
 };
