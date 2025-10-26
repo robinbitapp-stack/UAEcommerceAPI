@@ -900,7 +900,7 @@ app.get('/getCategoriesProduct', async (req, res) => {
 
       console.log("Fetching products for category:", category, "Page:", page);
 
-      const response = await apiAxios.get('products', {
+      const response = await api.get('products', {
         params: {
           per_page: limit,
           page: page,
