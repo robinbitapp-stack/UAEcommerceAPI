@@ -4,6 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const cheerio = require('cheerio');
 const FORCE_NGN_CURRENCY = '&currency=NGN';
+require('dotenv').config();
 
 //API
 const consumerKeyWC = 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b';
@@ -47,6 +48,8 @@ let categorySyncInProgress = false;
 
 const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+//console.log(`${UPSTASH_REDIS_REST_URL}.  ||  ${UPSTASH_REDIS_REST_TOKEN}`);
 
 const cache = {
   set: async (key, value, ttl = 3600) => {
@@ -243,7 +246,6 @@ cron.schedule('*/15 * * * *', () => {
 
 async function initializeApp() {
   try {
-    await redis.connect();
     console.log('🔄 Initial data sync starting...');
     await syncWooData('app startup');
     await syncWooCategories('app startup');
@@ -252,6 +254,7 @@ async function initializeApp() {
     console.error('❌ App initialization failed:', err.message);
   }
 }
+
 
 initializeApp();
 
