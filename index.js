@@ -678,7 +678,9 @@ async function syncCategoryProducts(categoryId) {
               'Referer': 'https://updateavenues.com/',
               'Origin': 'https://updateavenues.com'
             },
-            httpsAgent: agent
+            httpsAgent: new (require('https').Agent)({
+              rejectUnauthorized: false
+            }),
           });
           break;
         } catch (err) {
@@ -790,6 +792,19 @@ try {
     // await syncWooData();
     // await syncWooCategories();
     res.json({ success: true, message: 'API refreshed successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/clear-products-cache', async (req, res) => {
+  try {
+    //await cache.del('allCategories');
+    await deleteOldChunks('allProducts');
+    //await cache.del('category_26');
+    //await cache.del('category_27');
+    //await cache.del('category_26');
+    res.json({ success: true, message: 'Cache cleared successfully' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
