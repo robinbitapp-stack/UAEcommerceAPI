@@ -913,13 +913,12 @@ app.get('/getCategoriesProduct', async (req, res) => {
       const products = response.data;
       res.status(200).json({
         success: true,
-        source,
-        category,
-        skip,
+        category: category,
+        skip: skip,
         nextSkip: skip + products.length,
-        hasMore: skip + products.length < cachedCategoryProducts.length,
-        totalProducts: cachedCategoryProducts.length,
-        products
+        hasMore: products.length === limit,
+        totalProducts: products.length,
+        products: products
       });
     }
 
