@@ -581,7 +581,24 @@ async function syncWooCategories(caller = 'unknown') {
   try {
     console.log(`🌀 [syncWooCategories] Called from: ${caller} — Syncing WooCommerce categories...`);
     
-    const categoryRes = await apiAxios.get('products/categories', { params: { per_page: 100 }, timeout: 10000 });
+    //const categoryRes = await apiAxios.get('products/categories', { params: { per_page: 100 }, timeout: 10000 });
+    const categoryRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products/categories', {
+      params: {
+        per_page: 100,
+        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+      },
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://updateavenues.com/',
+        'Origin': 'https://updateavenues.com'
+      },
+      httpsAgent: new (require('https').Agent)({  
+        rejectUnauthorized: false
+      })
+    });
     const categories = categoryRes.data;
     const categoryMap = {};
 
@@ -638,19 +655,40 @@ async function syncCategoryProducts(categoryId) {
     let page = 1;
 
     while (true) {
-      const response = await apiAxios.get('products', {
-        params: addWooAuth({
-          per_page: 100,
-          page: page,
-          category: categoryId,
-          min_price: 1
-        }),
-        timeout: 10000,
-        auth: {
-          username: consumerKeyWC,
-          password: consumerSercretWC
-        }
-      });
+      // const response = await apiAxios.get('products', {
+      //   params: addWooAuth({
+      //     per_page: 100,
+      //     page: page,
+      //     category: categoryId,
+      //     min_price: 1
+      //   }),
+      //   timeout: 10000,
+      //   auth: {
+      //     username: consumerKeyWC,
+      //     password: consumerSercretWC
+      //   }
+      // });
+
+      const response = await axios.get('https://updateavenues.com/wp-json/wc/v3/products', {
+      params: {
+        per_page: 100,
+        page: page,
+        category: categoryId,
+        min_price: 1,
+        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+      },
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://updateavenues.com/',
+        'Origin': 'https://updateavenues.com'
+      },
+      httpsAgent: new (require('https').Agent)({  
+        rejectUnauthorized: false
+      })
+    });
 
       if (!response.data || response.data.length === 0) break;
 
@@ -914,15 +952,36 @@ app.get('/getCategoriesProduct', async (req, res) => {
 
       console.log("Fetching products for category:", category, "Page:", page);
 
-      const response = await apiAxios.get('products', {
-        params: addWooAuth({
-          per_page: limit,
-          page: page,
-          category: category,
-          min_price: 1,
-        }),
+      // const response = await apiAxios.get('products', {
+      //   params: addWooAuth({
+      //     per_page: limit,
+      //     page: page,
+      //     category: category,
+      //     min_price: 1,
+      //   }),
+      //   timeout: 10000,
+      // });
+
+      const response = await axios.get('https://updateavenues.com/wp-json/wc/v3/products', {
+      params: {
+        per_page: limit,
+        page: page,
+        category: category,
+        min_price: 1,
+        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+        },
         timeout: 10000,
-      });
+        headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://updateavenues.com/',
+        'Origin': 'https://updateavenues.com'
+      },
+      httpsAgent: new (require('https').Agent)({  
+        rejectUnauthorized: false
+      })
+    });
 
       const products = response.data;
       res.status(200).json({
@@ -1257,16 +1316,52 @@ app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
     }
 
     console.log('⚠️ Category cache empty — fetching directly for fast response...');
-    const categoryRes = await apiAxios.get('products/categories', { params: addWooAuth({ per_page: 100 }), timeout: 10000 });
+    //const categoryRes = await apiAxios.get('products/categories', { params: addWooAuth({ per_page: 100 }), timeout: 10000 });
+    const categoryRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products/categories', {
+      params: {
+        per_page: 100,
+        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+      },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://updateavenues.com/',
+        'Origin': 'https://updateavenues.com'
+      },
+      httpsAgent: new (require('https').Agent)({  
+        rejectUnauthorized: false
+      })
+    });
     const allCategories = categoryRes.data;
 
     const categoriesWithImage = await Promise.all(
       allCategories.map(async (cat) => {
         try {
-          const productRes = await apiAxios.get('products', {
-            params: addWooAuth({ per_page: 1, category: cat.id, stock_status: 'instock' }),
-            timeout: 10000
+          // const productRes = await apiAxios.get('products', {
+          //   params: addWooAuth({ per_page: 1, category: cat.id, stock_status: 'instock' }),
+          //   timeout: 10000
+          // });
+
+          const productRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products', {
+            params: {
+              per_page: 1,
+              category: cat.id,
+              consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+              consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+            },
+            timeout: 10000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Accept': 'application/json',
+              'Referer': 'https://updateavenues.com/',
+              'Origin': 'https://updateavenues.com'
+            },
+            httpsAgent: new (require('https').Agent)({
+              rejectUnauthorized: false
+            })
           });
+
           const product = productRes.data[0];
           if (product && product.images?.length > 0 && product.images[0].src) {
             return { id: cat.id, name: cat.name, image: product.images[0].src };
@@ -1290,24 +1385,59 @@ app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
 
 app.get('/getAllCategoriesWithOneProductImageOld', async (req, res) => {
   try {
-    const categoryRes = await apiAxios.get('products/categories', {
+    // const categoryRes = await apiAxios.get('products/categories', {
+    //   params: {
+    //     per_page: 100
+    //   },
+    //   timeout: 10000
+    // });
+
+    const categoryRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products/categories', {
       params: {
-        per_page: 100
+        per_page: 100,
+        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
       },
-      timeout: 10000
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://updateavenues.com/',
+        'Origin': 'https://updateavenues.com'
+      },
+      httpsAgent: new (require('https').Agent)({  
+        rejectUnauthorized: false
+      })
     });
 
     const categories = categoryRes.data;
 
     const filteredCategories = await Promise.all(categories.map(async (cat) => {
       try {
-        const productRes = await apiAxios.get('products', {
-          params: addWooAuth({
+        // const productRes = await apiAxios.get('products', {
+        //   params: addWooAuth({
+        //     per_page: 1,
+        //     category: cat.id,
+        //     stock_status: 'instock',
+        //   }),
+        //   timeout: 10000
+        // });
+
+        const productRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products', {
+          params: {
             per_page: 1,
             category: cat.id,
-            stock_status: 'instock',
-          }),
-          timeout: 10000
+            consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+            consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+          },
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Referer': 'https://updateavenues.com/',
+            'Origin': 'https://updateavenues.com'
+          },
+          httpsAgent: new (require('https').Agent)({
+            rejectUnauthorized: false
+          })
         });
 
         const product = productRes.data[0];
