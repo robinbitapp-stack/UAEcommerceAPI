@@ -866,7 +866,7 @@ app.get('/getallProducts', async (req, res) => {
       products: rawProducts
     });
 
-    //syncWooData('getallProducts route');
+    await syncWooData('getallProducts route');
   } catch (error) {
     res.status(500).json({
       success: false,
