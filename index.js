@@ -937,6 +937,7 @@ app.get('/getCategoriesProduct', async (req, res) => {
         totalProducts: products.length,
         products: products
       });
+      await syncCategoryProducts(category);
     }
 
   } catch (error) {
@@ -1240,7 +1241,7 @@ app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
     }
 
     console.log('⚠️ Category cache empty — fetching directly for fast response...');
-    const categoryRes = await apiAxio.get('products/categories', { params: { per_page: 100 }, timeout: 10000 });
+    const categoryRes = await apiAxios.get('products/categories', { params: { per_page: 100 }, timeout: 10000 });
     const allCategories = categoryRes.data;
 
     const categoriesWithImage = await Promise.all(
