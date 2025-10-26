@@ -5,6 +5,7 @@ const PORT = process.env.PORT || 3000;
 const cheerio = require('cheerio');
 const FORCE_NGN_CURRENCY = '&currency=NGN';
 require('dotenv').config();
+const { Redis } = require('@upstash/redis');
 
 //API
 const consumerKeyWC = 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b';
@@ -21,22 +22,21 @@ const api = new WooCommerceRestApi({
 const apiAxios = require('./woocommerce'); 
 
 // Redis setup
-const Redis = require('ioredis');
+//const Redis = require('ioredis');
+
+const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+
 const redis = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD || undefined,
-  retryDelayOnFailover: 100,
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  lazyConnect: true
+  url: UPSTASH_REDIS_REST_URL,
+  token: UPSTASH_REDIS_REST_TOKEN,
 });
 
 // Redis connection events
-redis.on('connect', () => console.log('✅ Redis connected'));
-redis.on('error', (err) => console.error('❌ Redis error:', err));
-redis.on('ready', () => console.log('🚀 Redis ready'));
-redis.on('end', () => console.log('🔌 Redis disconnected'));
+// redis.on('connect', () => console.log('✅ Redis connected'));
+// redis.on('error', (err) => console.error('❌ Redis error:', err));
+// redis.on('ready', () => console.log('🚀 Redis ready'));
+// redis.on('end', () => console.log('🔌 Redis disconnected'));
 
 
 //Cache&Sync
@@ -46,20 +46,43 @@ const axios = require('axios');
 let productSyncInProgress = false;
 let categorySyncInProgress = false;
 
-const UPSTASH_REDIS_REST_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+console.log(`${UPSTASH_REDIS_REST_URL}.  ||  ${UPSTASH_REDIS_REST_TOKEN}`);
 
-//console.log(`${UPSTASH_REDIS_REST_URL}.  ||  ${UPSTASH_REDIS_REST_TOKEN}`);
 
 const cache = {
   set: async (key, value, ttl = 3600) => {
     try {
-      const data = JSON.stringify(value);
-      await axios.post(`${UPSTASH_REDIS_REST_URL}/set/${key}/${encodeURIComponent(data)}`, null, {
-        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
-        params: { ex: ttl } 
-      });
-      return true;
+      console.log(`💾 [cache-set] Setting key: ${key}, Type: ${typeof value}, Length: ${value?.length}`);
+      
+      if (value && value.length > 1000) {
+        console.log(`📦 [cache] Large dataset detected (${value.length} items), splitting into chunks...`);
+        
+        const chunks = [];
+        const chunkSize = 500;
+        
+        for (let i = 0; i < value.length; i += chunkSize) {
+          chunks.push(value.slice(i, i + chunkSize));
+        }
+        
+        for (let i = 0; i < chunks.length; i++) {
+          await redis.setex(`${key}_chunk_${i}`, ttl, JSON.stringify(chunks[i]));
+        }
+        
+        await redis.setex(`${key}_metadata`, ttl, JSON.stringify({
+          totalChunks: chunks.length,
+          totalItems: value.length,
+          chunkSize: chunkSize,
+          timestamp: Date.now()
+        }));
+        
+        console.log(`✅ [cache] Stored ${chunks.length} chunks`);
+        return true;
+      } else {
+        const stringValue = JSON.stringify(value);
+        console.log(`💾 [cache-set] Stringified length: ${stringValue.length} bytes`);
+        await redis.setex(key, ttl, stringValue);
+        return true;
+      }
     } catch (err) {
       console.error(`❌ Redis set error for key ${key}:`, err.message);
       return false;
@@ -68,13 +91,56 @@ const cache = {
 
   get: async (key) => {
     try {
-      const res = await axios.get(`${UPSTASH_REDIS_REST_URL}/get/${key}`, {
-        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
-      });
-      if (res.data.result) {
-        return JSON.parse(res.data.result);
+      console.log(`🔍 [cache-get] Getting key: ${key}`);
+      
+      const metadata = await redis.get(`${key}_metadata`);
+      
+      if (metadata) {
+        console.log(`📦 [cache] Loading chunked data (${metadata.totalChunks} chunks)...`);
+        const allChunks = [];
+        
+        for (let i = 0; i < metadata.totalChunks; i++) {
+          const chunk = await redis.get(`${key}_chunk_${i}`);
+          console.log(`   Chunk ${i}: Type: ${typeof chunk}, Length: ${chunk?.length}`);
+          
+          if (chunk) {
+            const parsedChunk = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
+            allChunks.push(...parsedChunk);
+          }
+        }
+        
+        console.log(`✅ [cache] Loaded ${allChunks.length} items`);
+        return allChunks;
+      } else {
+        const data = await redis.get(key);
+        console.log(`🔍 [cache-get] Raw data type: ${typeof data}, Has data: ${!!data}`);
+        
+        if (!data) {
+          console.log(`🔍 [cache-get] No data found for key: ${key}`);
+          return null;
+        }
+        
+        if (typeof data === 'object') {
+          console.log(`🔍 [cache-get] Returning parsed object directly, length: ${data.length}`);
+          return data;
+        }
+        
+        if (typeof data === 'string') {
+          console.log(`🔍 [cache-get] Parsing string data, length: ${data.length}`);
+          try {
+            const parsed = JSON.parse(data);
+            console.log(`🔍 [cache-get] Successfully parsed, type: ${typeof parsed}, length: ${parsed?.length}`);
+            return parsed;
+          } catch (parseErr) {
+            console.error(`❌ JSON parse error for key ${key}:`, parseErr.message);
+            console.error(`   Data sample: ${data.substring(0, 200)}`);
+            return null;
+          }
+        }
+        
+        console.log(`❌ [cache-get] Unknown data type: ${typeof data}`);
+        return null;
       }
-      return null;
     } catch (err) {
       console.error(`❌ Redis get error for key ${key}:`, err.message);
       return null;
@@ -83,24 +149,12 @@ const cache = {
 
   del: async (key) => {
     try {
-      await axios.post(`${UPSTASH_REDIS_REST_URL}/del/${key}`, null, {
-        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
-      });
+      console.log(`🗑️ [cache-del] Deleting key: ${key}`);
+      await redis.del(key);
+      await redis.del(`${key}_metadata`);
       return true;
     } catch (err) {
       console.error(`❌ Redis delete error for key ${key}:`, err.message);
-      return false;
-    }
-  },
-
-  exists: async (key) => {
-    try {
-      const res = await axios.get(`${UPSTASH_REDIS_REST_URL}/exists/${key}`, {
-        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` }
-      });
-      return res.data.result === 1;
-    } catch (err) {
-      console.error(`❌ Redis exists error for key ${key}:`, err.message);
       return false;
     }
   }
@@ -216,13 +270,14 @@ async function syncWooCategories(caller = 'unknown') {
   categorySyncInProgress = true;
   try {
     console.log(`🌀 [syncWooCategories] Called from: ${caller} — Syncing WooCommerce categories...`);
-    const PQueue = (await import('p-queue')).default;
-
+    
     const categoryRes = await apiAxios.get('products/categories', { params: { per_page: 100 }, timeout: 10000 });
     const categories = categoryRes.data;
     const categoryMap = {};
 
+    const PQueue = (await import('p-queue')).default;
     const queue = new PQueue({ concurrency: 10 });
+    
     await Promise.all(categories.map(cat => queue.add(async () => {
       try {
         const productRes = await apiAxios.get('products', {
@@ -231,26 +286,33 @@ async function syncWooCategories(caller = 'unknown') {
         });
         const product = productRes.data[0];
         if (product?.images?.[0]?.src) {
-          categoryMap[cat.id] = { id: cat.id, name: cat.name, image: product.images[0].src };
+          categoryMap[cat.id] = { 
+            id: cat.id, 
+            name: cat.name, 
+            image: product.images[0].src 
+          };
         }
-      } catch {}
+      } catch (err) {
+        console.log(`⚠️ Failed to get image for category ${cat.name}`);
+      }
     })));
 
     await queue.onIdle();
     const categoriesArray = Object.values(categoryMap);
+    
+    console.log(`✅ [syncWooCategories] Processed ${categoriesArray.length} categories with images`);
+    
     if (categoriesArray.length > 0) {
       const cacheSuccess = await cache.set('allCategories', categoriesArray);
       if (cacheSuccess) {
-        console.log(`✅ [syncWooCategories] Redis cached ${categoriesArray.length} categories`);
+        console.log(`💾 [syncWooCategories] Cached ${categoriesArray.length} categories`);
       } else {
-        console.error(`❌ [syncWooCategories] Failed to cache categories in Redis`);
+        console.error(`❌ [syncWooCategories] Failed to cache categories`);
       }
-    } else {
-      console.warn(`⚠️ [syncWooCategories] No valid categories fetched, keeping old cache`);
     }
 
   } catch (err) {
-    console.error(`❌ [syncWooCategories] Failed (called from ${caller}): ${err.message}`);
+    console.error(`❌ [syncWooCategories] Failed: ${err.message}`);
   } finally {
     categorySyncInProgress = false;
   }
@@ -302,7 +364,7 @@ cron.schedule('*/15 * * * *', () => {
 
 async function initializeApp() {
   try {
-    await redis.connect();
+    //await redis.connect();
     console.log('🔄 Initial data sync starting...');
     await syncWooData('app startup');
     await syncWooCategories('app startup');
@@ -315,6 +377,7 @@ async function initializeApp() {
 
 initializeApp();
 
+
 app.get('/',async(req,res)=>{
 try {
     // productSyncInProgress = false;
@@ -322,6 +385,16 @@ try {
     // await syncWooData();
     // await syncWooCategories();
     res.json({ success: true, message: 'API refreshed successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/clear-cache', async (req, res) => {
+  try {
+    await cache.del('allCategories');
+    await cache.del('allProducts');
+    res.json({ success: true, message: 'Cache cleared successfully' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

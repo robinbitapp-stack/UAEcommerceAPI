@@ -4,6 +4,7 @@
     "start": "nodemon index.js"
   },
   "dependencies": {
+    "@upstash/redis": "^1.35.6",
     "@woocommerce/woocommerce-rest-api": "^1.0.2",
     "axios": "^1.12.2",
     "cheerio": "^1.1.2",
