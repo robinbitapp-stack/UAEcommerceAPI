@@ -54,10 +54,14 @@ const UPSTASH_REDIS_REST_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const cache = {
   set: async (key, value, ttl = 3600) => {
     try {
-      const data = JSON.stringify(value);
-      await axios.post(`${UPSTASH_REDIS_REST_URL}/set/${key}/${encodeURIComponent(data)}`, null, {
-        headers: { Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}` },
-        params: { ex: ttl } 
+      await axios.post(`${UPSTASH_REDIS_REST_URL}/set/${key}`, {
+        value: value,
+        ex: ttl
+      }, {
+        headers: { 
+          Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
       });
       return true;
     } catch (err) {
@@ -229,8 +233,7 @@ async function syncCategoryProducts(categoryId) {
     }
 
     const cachedCategoryProducts = allProducts.filter(p => p.price && p.stock_status === 'instock');
-    await cache.set(`category_${categoryId}`, cachedCategoryProducts, 1800); // 30 minutes TTL
-
+    await cache.set(`category_${categoryId}`, cachedCategoryProducts, 1800);
     return cachedCategoryProducts;
   } catch (error) {
     console.error(`❌ Error syncing category ${categoryId} products:`, error.message);
@@ -393,10 +396,12 @@ app.get('/getCategoriesProduct', async (req, res) => {
     let cachedCategoryProducts = await cache.get(`category_${category}`);
     let source = 'cache';
 
-    if (!cachedCategoryProducts) {
+    if (!Array.isArray(cachedCategoryProducts)) {
       source = 'api';
       cachedCategoryProducts = await syncCategoryProducts(category);
     }
+
+    cachedCategoryProducts = Array.isArray(cachedCategoryProducts) ? cachedCategoryProducts : [];
 
     const products = cachedCategoryProducts.slice(skip, skip + limit);
 
