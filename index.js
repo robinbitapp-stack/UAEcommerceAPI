@@ -62,8 +62,19 @@ const cache = {
     try {
       console.log(`💾 [cache-set] Setting key: ${key}, Type: ${typeof value}, Length: ${value?.length}`);
 
+      try {
+        const oldKeys = await redis.keys(`${key}_chunk_*`);
+        if (oldKeys.length > 0) {
+          await redis.del(oldKeys);
+          console.log(`✅ [cache-set] Deleted old chunks: ${oldKeys.join(', ')}`);
+        }
+        await redis.del(`${key}_metadata`);
+      } catch (delErr) {
+        console.error(`❌ [cache-set] Error deleting old keys for "${key}":`, delErr.message);
+      }
+
       if (value && value.length > 1000) {
-        console.log(`📦 [cache] Large dataset detected (${value.length} items), splitting into chunks...`);
+        console.log(`📦 [cache-set] Large dataset detected (${value.length} items), splitting into chunks...`);
 
         const chunks = [];
         const chunkSize = 100;
@@ -83,33 +94,20 @@ const cache = {
           timestamp: Date.now()
         }));
 
-        console.log(`✅ [cache] Stored ${chunks.length} chunks`);
-
-        try {
-          const existingKeys = await redis.keys(`${key}_chunk_*`);
-          const keysToDelete = existingKeys.filter(k => {
-            const match = k.match(/_chunk_(\d+)$/);
-            return match && Number(match[1]) >= chunks.length;
-          });
-          if (keysToDelete.length > 0) {
-            await redis.del(keysToDelete);
-            console.log(`✅ Deleted old chunks: ${keysToDelete.join(', ')}`);
-          }
-        } catch (delErr) {
-          console.error(`❌ Error deleting old chunks for "${key}":`, delErr.message);
-        }
-
-        return true;
-
+        console.log(`✅ [cache-set] Stored ${chunks.length} chunks`);
       } else {
-        const stringValue = JSON.stringify(value);
-        console.log(`💾 [cache-set] Stringified length: ${stringValue.length} bytes`);
-        await redis.setex(key, ttl, stringValue);
-        return true;
+        try {
+        await redis.del(`${key}`);
+      } catch (delErr) {
+        console.error(`❌ [cache-set] Error deleting old keys for "${key}":`, delErr.message);
+      }
+        await redis.setex(key, ttl, JSON.stringify(value));
+        console.log(`💾 [cache-set] Stored key "${key}" with ${JSON.stringify(value).length} bytes`);
       }
 
+      return true;
     } catch (err) {
-      console.error(`❌ Redis set error for key ${key}:`, err.message);
+      console.error(`❌ [cache-set] Redis set error for key "${key}":`, err.message);
       return false;
     }
   },
@@ -594,7 +592,11 @@ async function syncWooCategories(caller = 'unknown') {
       try {
         const productRes = await apiAxios.get('products', {
           params: { per_page: 1, category: cat.id, stock_status: 'instock' },
-          timeout: 10000
+          timeout: 10000,
+          auth: {
+          username: consumerKeyWC,
+          password: consumerSercretWC
+        }
         });
         const product = productRes.data[0];
         if (product?.images?.[0]?.src) {
@@ -643,7 +645,11 @@ async function syncCategoryProducts(categoryId) {
           category: categoryId,
           min_price: 1
         },
-        timeout: 10000
+        timeout: 10000,
+        auth: {
+          username: consumerKeyWC,
+          password: consumerSercretWC
+        }
       });
 
       if (!response.data || response.data.length === 0) break;
