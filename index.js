@@ -908,7 +908,7 @@ app.get('/getCategoriesProduct', async (req, res) => {
 
       console.log("Fetching products for category:", category, "Page:", page);
 
-      const response = await apiAxio.get('products', {
+      const response = await apiAxios.get('products', {
         params: {
           per_page: limit,
           page: page,
@@ -919,7 +919,12 @@ app.get('/getCategoriesProduct', async (req, res) => {
           username: consumerKeyWC,
           password: consumerSercretWC
         },
-        timeout: 10000
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+            '(KHTML, like Gecko) Chrome/118.0.5993.90 Safari/537.36',
+          'Accept': 'application/json'
+        }
       });
 
       const products = response.data;
