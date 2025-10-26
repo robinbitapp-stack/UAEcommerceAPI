@@ -904,7 +904,7 @@ app.get('/getCategoriesProduct', async (req, res) => {
         skip,
         nextSkip: skip + products.length,
         hasMore: skip + products.length < cachedCategoryProducts.length,
-        totalProducts: cachedCategoryProducts.length,
+        totalProducts: skip + products.length,
         products
       });
     } else {
