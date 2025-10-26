@@ -53,36 +53,53 @@ const cache = {
   set: async (key, value, ttl = 3600) => {
     try {
       console.log(`💾 [cache-set] Setting key: ${key}, Type: ${typeof value}, Length: ${value?.length}`);
-      
+
       if (value && value.length > 1000) {
         console.log(`📦 [cache] Large dataset detected (${value.length} items), splitting into chunks...`);
-        
+
         const chunks = [];
-        const chunkSize = 500;
-        
+        const chunkSize = 100;
+
         for (let i = 0; i < value.length; i += chunkSize) {
           chunks.push(value.slice(i, i + chunkSize));
         }
-        
+
         for (let i = 0; i < chunks.length; i++) {
           await redis.setex(`${key}_chunk_${i}`, ttl, JSON.stringify(chunks[i]));
         }
-        
+
         await redis.setex(`${key}_metadata`, ttl, JSON.stringify({
           totalChunks: chunks.length,
           totalItems: value.length,
           chunkSize: chunkSize,
           timestamp: Date.now()
         }));
-        
+
         console.log(`✅ [cache] Stored ${chunks.length} chunks`);
+
+        try {
+          const existingKeys = await redis.keys(`${key}_chunk_*`);
+          const keysToDelete = existingKeys.filter(k => {
+            const match = k.match(/_chunk_(\d+)$/);
+            return match && Number(match[1]) >= chunks.length;
+          });
+          if (keysToDelete.length > 0) {
+            await redis.del(keysToDelete);
+            console.log(`✅ Deleted old chunks: ${keysToDelete.join(', ')}`);
+          }
+        } catch (delErr) {
+          console.error(`❌ Error deleting old chunks for "${key}":`, delErr.message);
+        }
+
         return true;
+
       } else {
         const stringValue = JSON.stringify(value);
         console.log(`💾 [cache-set] Stringified length: ${stringValue.length} bytes`);
         await redis.setex(key, ttl, stringValue);
         return true;
       }
+
     } catch (err) {
       console.error(`❌ Redis set error for key ${key}:`, err.message);
       return false;
@@ -92,39 +109,39 @@ const cache = {
   get: async (key) => {
     try {
       console.log(`🔍 [cache-get] Getting key: ${key}`);
-      
+
       const metadata = await redis.get(`${key}_metadata`);
-      
+
       if (metadata) {
         console.log(`📦 [cache] Loading chunked data (${metadata.totalChunks} chunks)...`);
         const allChunks = [];
-        
+
         for (let i = 0; i < metadata.totalChunks; i++) {
           const chunk = await redis.get(`${key}_chunk_${i}`);
           console.log(`   Chunk ${i}: Type: ${typeof chunk}, Length: ${chunk?.length}`);
-          
+
           if (chunk) {
             const parsedChunk = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
             allChunks.push(...parsedChunk);
           }
         }
-        
+
         console.log(`✅ [cache] Loaded ${allChunks.length} items`);
         return allChunks;
       } else {
         const data = await redis.get(key);
         console.log(`🔍 [cache-get] Raw data type: ${typeof data}, Has data: ${!!data}`);
-        
+
         if (!data) {
           console.log(`🔍 [cache-get] No data found for key: ${key}`);
           return null;
         }
-        
+
         if (typeof data === 'object') {
           console.log(`🔍 [cache-get] Returning parsed object directly, length: ${data.length}`);
           return data;
         }
-        
+
         if (typeof data === 'string') {
           console.log(`🔍 [cache-get] Parsing string data, length: ${data.length}`);
           try {
@@ -137,7 +154,170 @@ const cache = {
             return null;
           }
         }
-        
+
+        console.log(`❌ [cache-get] Unknown data type: ${typeof data}`);
+        return null;
+      }
+    } catch (err) {
+      console.error(`❌ Redis get error for key ${key}:`, err.message);
+      return null;
+    }
+  },
+
+  getProducts: async (key, skip, limit) => {
+    try {
+      console.log(`🔍 [cache-get] Getting key: ${key}`);
+
+      const metadataStr = await redis.get(`${key}_metadata`);
+      if (metadataStr) {
+        const metadata = JSON.parse(metadataStr);
+        const chunkInfo = getRequiredChunks(skip, limit);
+
+        const chunkKeys = [];
+        for (let i = chunkInfo.startChunk; i <= chunkInfo.endChunk; i++) {
+          chunkKeys.push(`${key}_chunk_${i}`);
+        }
+
+        console.log(`📦 [cache] Loading ${chunkKeys.length} chunks in parallel...`);
+        const chunks = await redis.get(chunkKeys);
+
+        const allChunks = [];
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          if (chunk) {
+            const parsed = (typeof chunk === 'string' && chunk[0] === '[')
+              ? JSON.parse(chunk)
+              : chunk;
+            allChunks.push(...parsed);
+          }
+        }
+
+        console.log(`✅ [cache] Loaded ${allChunks.length} items`);
+        return allChunks;
+      }
+
+      const data = await redis.get(key);
+      if (!data) return null;
+
+      return typeof data === 'string' ? JSON.parse(data) : data;
+    } catch (err) {
+      console.error(`❌ Redis get error for key ${key}:`, err.message);
+      return null;
+    }
+  },
+
+  getPr: async (key, skip, limit) => {
+    try {
+      const metadata = await redis.get(`${key}_metadata`);
+      if (!metadata) return [];
+
+      const chunkInfo = getRequiredChunks(skip, limit);
+
+      // 🚀 LOAD CHUNKS IN PARALLEL
+      const chunkPromises = chunkInfo.chunksNeeded.map(chunkNum =>
+        redis.get(`${key}_chunk_${chunkNum}`)
+      );
+
+      const chunks = await Promise.all(chunkPromises);
+
+      let neededProducts = [];
+
+      // 🎯 EXTRACT ONLY NEEDED ITEMS
+      chunks.forEach((chunk, index) => {
+        if (!chunk) return;
+
+        const chunkNum = chunkInfo.chunksNeeded[index];
+        const parsedChunk = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
+        const chunkStartIndex = (chunkNum - 1) * metadata.chunkSize;
+
+        const requestedStart = skip;
+        const requestedEnd = skip + limit - 1;
+        const overlapStart = Math.max(requestedStart, chunkStartIndex);
+        const overlapEnd = Math.min(requestedEnd, chunkStartIndex + parsedChunk.length - 1);
+
+        if (overlapStart <= overlapEnd) {
+          const startInChunk = overlapStart - chunkStartIndex;
+          const endInChunk = overlapEnd - chunkStartIndex;
+          const slice = parsedChunk.slice(startInChunk, endInChunk + 1);
+          neededProducts.push(...slice);
+        }
+      });
+
+      return neededProducts.slice(0, limit);
+
+    } catch (err) {
+      console.error(`❌ Redis getP error:`, err.message);
+      return [];
+    }
+  },
+
+  getPOld: async (key, skip, limit) => {
+    try {
+      console.log(`🔍 [cache-get] Getting key: ${key}`);
+
+      const metadata = await redis.get(`${key}_metadata`);
+
+      if (metadata) {
+        const parsedMetadata = (metadata);
+        console.log(`📦 [cache] Loading chunked data (${parsedMetadata.totalChunks}, ${parsedMetadata.totalItems}, ${parsedMetadata.chunkSize} chunks)...`);
+
+        const allChunks = [];
+        const total = skip + limit;
+        const chunkNumber = getChunkNumber(skip);
+        const isMoreNeeded = isCrossingChunkBoundary(skip, limit);
+        const place = total;
+        const chunkInfo = getRequiredChunks(skip, limit);
+
+        console.log(`chunkNumber : ${chunkNumber}`);
+        console.log(`isMoreNeeded : ${isMoreNeeded}`);
+        console.log(`place : ${place}`);
+        console.log(`chunkInfo : ${JSON.stringify(chunkInfo)}`);
+
+        const chunksNeeded = chunkInfo.chunksNeeded;
+        const totalChunks = chunkInfo.totalChunksNeeded;
+        const startChunk = chunkInfo.startChunk;
+        const endChunk = chunkInfo.endChunk;
+
+        for (let i = startChunk; i <= endChunk; i++) {
+          const chunk = await redis.get(`${key}_chunk_${i}`);
+          console.log(`   Chunk ${i}: Type: ${typeof chunk}, Length: ${chunk?.length}`);
+
+          if (chunk) {
+            const parsedChunk = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
+            allChunks.push(...parsedChunk);
+            console.log(`✅ [cache] adding chunk ${parsedChunk.length} items`);
+          }
+        }
+
+        console.log(`✅ [cache] Loaded ${allChunks.length} items`);
+        return allChunks;
+      } else {
+        const data = await redis.get(key);
+        console.log(`🔍 [cache-get] Raw data type: ${typeof data}, Has data: ${!!data}`);
+
+        if (!data) {
+          console.log(`🔍 [cache-get] No data found for key: ${key}`);
+          return null;
+        }
+
+        if (typeof data === 'object') {
+          console.log(`🔍 [cache-get] Returning parsed object directly, length: ${data.length}`);
+          return data;
+        }
+
+        if (typeof data === 'string') {
+          console.log(`🔍 [cache-get] Parsing string data, length: ${data.length}`);
+          try {
+            const parsed = JSON.parse(data);
+            console.log(`🔍 [cache-get] Successfully parsed, type: ${typeof parsed}, length: ${parsed?.length}`);
+            return parsed;
+          } catch (parseErr) {
+            console.error(`❌ JSON parse error for key ${key}:`, parseErr.message);
+            console.error(`   Data sample: ${data.substring(0, 200)}`);
+            return null;
+          }
+        }
+
         console.log(`❌ [cache-get] Unknown data type: ${typeof data}`);
         return null;
       }
@@ -150,72 +330,65 @@ const cache = {
   getP: async (key, skip, limit) => {
     try {
       console.log(`🔍 [cache-get] Getting key: ${key}`);
-      
-      const metadata = await redis.get(`${key}_metadata`);
-      
-      if (metadata) {
-        console.log(`📦 [cache] Loading chunked data (${metadata.totalChunks} chunks)...`);
-        const allChunks = [];
-        
-        const total = (skip+limit);
-        const chunkNumber = getChunkNumber(skip);
-        const isMoreNeeded = isCrossingChunkBoundary(skip,limit);
-        const place = total;
+
+      const metadataStr = await redis.get(`${key}_metadata`);
+
+      if (metadataStr) {
+        const metadata = (metadataStr);
+        console.log(`📦 [cache] Loading chunked data (${metadata.totalChunks} chunks, ${metadata.totalItems} total items, chunkSize: ${metadata.chunkSize})`);
+
         const chunkInfo = getRequiredChunks(skip, limit);
-        console.log(`chunkNumber : ${chunkNumber}`);
-        console.log(`isMoreNeeded : ${isMoreNeeded}`);
-        console.log(`place : ${place}`);
-        console.log(`chunkInfo : ${JSON.stringify(chunkInfo)}`);
-        const chunksNeeded = chunkInfo.chunksNeeded;
-        const totalChunks = chunkInfo.totalChunksNeeded;
         const startChunk = chunkInfo.startChunk;
-        for (let i = startChunk; i < totalChunks; i++) {
+        const endChunk = chunkInfo.endChunk;
+
+        let allItems = [];
+
+        // Load only required chunks
+        for (let i = startChunk; i <= endChunk; i++) {
           const chunk = await redis.get(`${key}_chunk_${i}`);
-          console.log(`   Chunk ${i}: Type: ${typeof chunk}, Length: ${chunk?.length}`);
-          
           if (chunk) {
             const parsedChunk = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
-            allChunks.push(...parsedChunk);
+            allItems.push(...parsedChunk);
           }
         }
-        
-        console.log(`✅ [cache] Loaded ${allChunks.length} items`);
-        return allChunks;
+
+        // Slice the exact range requested
+        const offset = (skip - (startChunk * metadata.chunkSize));
+        const requestedProducts = allItems.slice(offset, offset + limit);
+
+        const hasMoreProducts = skip + requestedProducts.length < metadata.totalItems;
+
+        console.log(`chunkInfor : ${JSON.stringify(chunkInfo)}`)
+        console.log(`✅ [cache] Returning ${requestedProducts.length} products, hasMoreProducts: ${hasMoreProducts}`);
+
+        console.log(`✅ [startIndexInChunk] Returning ${offset} products, requestedProducts: ${requestedProducts} && allItems ${allItems}`);
+        console.log(`✅ [cache] Returning ${requestedProducts.length} products, hasMoreProducts: ${hasMoreProducts}`);
+
+        return {
+          products: requestedProducts,
+          hasMoreProducts,
+          totalProducts: metadata.totalItems
+        };
       } else {
         const data = await redis.get(key);
-        console.log(`🔍 [cache-get] Raw data type: ${typeof data}, Has data: ${!!data}`);
-        
-        if (!data) {
-          console.log(`🔍 [cache-get] No data found for key: ${key}`);
-          return null;
-        }
-        
-        if (typeof data === 'object') {
-          console.log(`🔍 [cache-get] Returning parsed object directly, length: ${data.length}`);
-          return data;
-        }
-        
-        if (typeof data === 'string') {
-          console.log(`🔍 [cache-get] Parsing string data, length: ${data.length}`);
-          try {
-            const parsed = JSON.parse(data);
-            console.log(`🔍 [cache-get] Successfully parsed, type: ${typeof parsed}, length: ${parsed?.length}`);
-            return parsed;
-          } catch (parseErr) {
-            console.error(`❌ JSON parse error for key ${key}:`, parseErr.message);
-            console.error(`   Data sample: ${data.substring(0, 200)}`);
-            return null;
-          }
-        }
-        
-        console.log(`❌ [cache-get] Unknown data type: ${typeof data}`);
-        return null;
+        if (!data) return { products: [], hasMoreProducts: false, totalProducts: 0 };
+
+        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+        const requestedProducts = parsedData.slice(skip, skip + limit);
+        const hasMoreProducts = skip + requestedProducts.length < parsedData.length;
+
+        return {
+          products: requestedProducts,
+          hasMoreProducts,
+          totalProducts: parsedData.length
+        };
       }
     } catch (err) {
       console.error(`❌ Redis get error for key ${key}:`, err.message);
-      return null;
+      return { products: [], hasMoreProducts: false, totalProducts: 0 };
     }
   },
+
 
   del: async (key) => {
     try {
@@ -444,17 +617,17 @@ async function initializeApp() {
   }
 }
 
-const getChunkNumber = (skip, chunkSize = 500) => {
+const getChunkNumber = (skip, chunkSize = 100) => {
   return Math.floor(Number(skip) / chunkSize) + 1;
 };
 
-const isCrossingChunkBoundary = (skip, limit, chunkSize = 500) => {
+const isCrossingChunkBoundary = (skip, limit, chunkSize = 100) => {
   const currentChunkStart = Math.floor(skip / chunkSize) * chunkSize;
   const positionInChunk = skip - currentChunkStart;
   return (positionInChunk + limit) > chunkSize;
 };
 
-const getRequiredChunks = (skip, limit, chunkSize = 500) => {
+const getRequiredChunks = (skip, limit, chunkSize = 100) => {
   const startChunk = getChunkNumber(skip, chunkSize);
   const endIndex = skip + limit - 1;
   const endChunk = getChunkNumber(endIndex, chunkSize);
@@ -468,6 +641,23 @@ const getRequiredChunks = (skip, limit, chunkSize = 500) => {
     crossesBoundary: endChunk > startChunk
   };
 };
+
+async function deleteOldChunks(key) {
+  try {
+    // Get all keys matching the pattern
+    const keys = await redis.keys(`${key}_*`);
+    if (keys.length === 0) {
+      console.log(`No old chunks found for key: ${key}`);
+      return;
+    }
+
+    // Delete all at once
+    await redis.del(keys);
+    console.log(`✅ Deleted all old chunks and metadata for "${key}": ${keys.join(', ')}`);
+  } catch (err) {
+    console.error(`❌ Error deleting old chunks for "${key}":`, err.message);
+  }
+}
 
 // Example: skip=490, limit=20 → {startChunk:1, endChunk:2, chunksNeeded:[1,2], crossesBoundary:true}
 
@@ -488,8 +678,11 @@ try {
 
 app.get('/clear-cache', async (req, res) => {
   try {
-    //await cache.del('allCategories');
-    await cache.del('allProducts');
+    await cache.del('allCategories');
+    await deleteOldChunks('allProducts');
+    await cache.del('category_26');
+    await cache.del('category_27');
+    await cache.del('category_26');
     res.json({ success: true, message: 'Cache cleared successfully' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -522,16 +715,19 @@ app.get('/getallProducts', async (req, res) => {
     const limit = 20;
 
     const cachedProducts = await cache.getP('allProducts',skip,limit);
-    if (cachedProducts && cachedProducts.length > 0) {
-      const products = cachedProducts.slice(skip, skip + limit);
+    if (cachedProducts && cachedProducts.products.length > 0) {
+      //const products = cachedProducts.slice(skip, skip + limit);
+      const products = cachedProducts.products;
+      const hasMore = cachedProducts.hasMoreProducts;
+      const totalP = cachedProducts.totalProducts;
       console.log(`Fetched from synced cache.`);
       res.status(200).json({
         success: true,
         source: 'cache',
         skip,
         nextSkip: skip + products.length,
-        hasMore: skip + products.length < cachedProducts.length,
-        totalProducts: cachedProducts.length,
+        hasMore: hasMore,
+        totalProducts: totalP,
         products
       });
       return;
