@@ -650,65 +650,70 @@ async function syncWooCategories(caller = 'unknown') {
 }
 
 async function syncCategoryProducts(categoryId) {
+  const maxRetries = 3;
+  const retryDelay = 3000;
+
   try {
     const allProducts = [];
     let page = 1;
 
     while (true) {
-      // const response = await apiAxios.get('products', {
-      //   params: addWooAuth({
-      //     per_page: 100,
-      //     page: page,
-      //     category: categoryId,
-      //     min_price: 1
-      //   }),
-      //   timeout: 10000,
-      //   auth: {
-      //     username: consumerKeyWC,
-      //     password: consumerSercretWC
-      //   }
-      // });
+      let response = null;
 
-      const response = await axios.get('https://updateavenues.com/wp-json/wc/v3/products', {
-      params: {
-        per_page: 100,
-        page: page,
-        category: categoryId,
-        min_price: 1,
-        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
-      },
-      timeout: 30000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://updateavenues.com/',
-        'Origin': 'https://updateavenues.com'
-      },
-      httpsAgent: new (require('https').Agent)({  
-        rejectUnauthorized: false
-      })
-    });
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          response = await axios.get('https://updateavenues.com/wp-json/wc/v3/products', {
+            params: {
+              per_page: 100,
+              page: page,
+              category: categoryId,
+              min_price: 1,
+              consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
+              consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+            },
+            timeout: 30000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              'Accept': 'application/json',
+              'Referer': 'https://updateavenues.com/',
+              'Origin': 'https://updateavenues.com'
+            },
+            httpsAgent: agent
+          });
+          break;
+        } catch (err) {
+          console.error(`⚠️ [Retry ${attempt}/${maxRetries}] Category ${categoryId} page ${page} failed: ${err.message}`);
+          if (attempt < maxRetries) {
+            await new Promise(res => setTimeout(res, retryDelay * attempt)); 
+          } else {
+            console.error(`❌ Max retries reached for category ${categoryId} page ${page}. Skipping this page.`);
+            response = null;
+          }
+        }
+      }
 
-      if (!response.data || response.data.length === 0) break;
+      if (!response || !response.data || response.data.length === 0) break;
 
       allProducts.push(...response.data);
       if (response.data.length < 100) break;
       page++;
     }
 
-    const cachedCategoryProducts = allProducts.filter(p => p.price && p.stock_status === 'instock');
-    console.error(`Category Products Synced ${categoryId}  : ${cachedCategoryProducts.length},  ${cachedCategoryProducts.result} products:`);
+    const cachedCategoryProducts = allProducts.filter(
+      p => p.price && p.stock_status === 'instock'
+    );
+
+    console.log(`✅ Category ${categoryId} synced: ${cachedCategoryProducts.length} products`);
+
     const isSuccess = await cache.set(`category_${categoryId}`, cachedCategoryProducts, 7200);
-    if (isSuccess) {
-      console.log(`✅ [syncWooCategories] Redis cached ${cachedCategoryProducts.length} categories`);
-    } else {
-      console.error(`❌ [syncWooCategories] Failed to cache categories in Redis`);
+    if (!isSuccess) {
+      console.error(`❌ Failed to cache category ${categoryId} in Redis`);
     }
+
     return cachedCategoryProducts;
   } catch (error) {
-    console.error(`❌ Error syncing category ${categoryId} products:`, error.message);
-    throw error;
+    console.error(`❌ Error syncing category ${categoryId}:`, error.message);
+    return [];
   }
 }
 
