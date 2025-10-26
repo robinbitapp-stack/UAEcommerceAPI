@@ -389,6 +389,67 @@ const cache = {
     }
   },
 
+  getCategoryProducts: async (key, skip, limit) => {
+    try {
+      console.log(`🔍 [cache-get] Getting key: ${key}`);
+
+      const metadataStr = await redis.get(`${key}_metadata`);
+
+      if (metadataStr) {
+        const metadata = (metadataStr);
+        console.log(`📦 [cache] Loading chunked data (${metadata.totalChunks} chunks, ${metadata.totalItems} total items, chunkSize: ${metadata.chunkSize})`);
+
+        const chunkInfo = getRequiredChunks(skip, limit);
+        const startChunk = chunkInfo.startChunk;
+        const endChunk = chunkInfo.endChunk;
+
+        let allItems = [];
+
+        // Load only required chunks
+        for (let i = startChunk; i <= endChunk; i++) {
+          const chunk = await redis.get(`${key}_chunk_${i}`);
+          if (chunk) {
+            const parsedChunk = typeof chunk === 'string' ? JSON.parse(chunk) : chunk;
+            allItems.push(...parsedChunk);
+          }
+        }
+
+        // Slice the exact range requested
+        const offset = (skip - (startChunk * metadata.chunkSize));
+        const requestedProducts = allItems.slice(offset, offset + limit);
+
+        const hasMoreProducts = skip + requestedProducts.length < metadata.totalItems;
+
+        console.log(`chunkInfor : ${JSON.stringify(chunkInfo)}`)
+        console.log(`✅ [cache] Returning ${requestedProducts.length} products, hasMoreProducts: ${hasMoreProducts}`);
+
+        console.log(`✅ [startIndexInChunk] Returning ${offset} products, requestedProducts: ${requestedProducts} && allItems ${allItems}`);
+        console.log(`✅ [cache] Returning ${requestedProducts.length} products, hasMoreProducts: ${hasMoreProducts}`);
+
+        return {
+          products: requestedProducts,
+          hasMoreProducts,
+          totalProducts: metadata.totalItems
+        };
+      } else {
+        const data = await redis.get(key);
+        if (!data) return { products: [], hasMoreProducts: false, totalProducts: 0 };
+
+        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+        const requestedProducts = parsedData.slice(skip, skip + limit);
+        const hasMoreProducts = skip + requestedProducts.length < parsedData.length;
+
+        return {
+          products: requestedProducts,
+          hasMoreProducts,
+          totalProducts: parsedData.length
+        };
+      }
+    } catch (err) {
+      console.error(`❌ Redis get error for key ${key}:`, err.message);
+      return { products: [], hasMoreProducts: false, totalProducts: 0 };
+    }
+  },
 
   del: async (key) => {
     try {
@@ -819,32 +880,48 @@ app.get('/getCategoriesProduct', async (req, res) => {
 
     //console.log('cachedCategoryProducts :', cachedCategoryProducts,  cachedCategoryProducts.length);
 
-     if (cachedCategoryProducts && Array.isArray(cachedCategoryProducts)) {
+    if (cachedCategoryProducts && Array.isArray(cachedCategoryProducts)) {
       cachedCategoryProducts = cachedCategoryProducts;
+      const products = cachedCategoryProducts.slice(skip, skip + limit);
+      res.status(200).json({
+        success: true,
+        source,
+        category,
+        skip,
+        nextSkip: skip + products.length,
+        hasMore: skip + products.length < cachedCategoryProducts.length,
+        totalProducts: cachedCategoryProducts.length,
+        products
+      });
     } else {
-      cachedCategoryProducts = await syncCategoryProducts(category);
+      //cachedCategoryProducts = await syncCategoryProducts(category);
       source = 'api';
+      const page = Math.floor(skip / limit) + 1;
+
+      console.log("Fetching products for category:", category, "Page:", page);
+
+      const response = await apiAxios.get('products', {
+        params: {
+          per_page: limit,
+          page: page,
+          category: category,
+          min_price: 1
+        },
+        timeout: 10000
+      });
+
+      const products = response.data;
+      res.status(200).json({
+        success: true,
+        source,
+        category,
+        skip,
+        nextSkip: skip + products.length,
+        hasMore: skip + products.length < cachedCategoryProducts.length,
+        totalProducts: cachedCategoryProducts.length,
+        products
+      });
     }
-
-    console.log('cachedCategoryProducts length:', cachedCategoryProducts.length);
-
-    cachedCategoryProducts = Array.isArray(cachedCategoryProducts) ? cachedCategoryProducts : [];
-
-    //const check = await cache.get(key);
-    //const arrayCheck = Array.isArray(check) ? check : [];
-
-    const products = cachedCategoryProducts.slice(skip, skip + limit);
-
-    res.status(200).json({
-      success: true,
-      source,
-      category,
-      skip,
-      nextSkip: skip + products.length,
-      hasMore: skip + products.length < cachedCategoryProducts.length,
-      totalProducts: cachedCategoryProducts.length,
-      products
-    });
 
   } catch (error) {
     console.error("Woo API Error:", error.response?.data || error.message || error);
