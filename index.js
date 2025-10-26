@@ -20,7 +20,7 @@ const api = new WooCommerceRestApi({
   queryStringAuth: true
 });
 
-const apiAxios = require('./woocommerce'); 
+const { apiAxios, addWooAuth } = require('./woocommerce');
 
 const apiAxio = axios.create({
   baseURL: 'https://updateavenues.com/wp-json/wc/v3/',
@@ -591,7 +591,7 @@ async function syncWooCategories(caller = 'unknown') {
     await Promise.all(categories.map(cat => queue.add(async () => {
       try {
         const productRes = await apiAxios.get('products', {
-          params: { per_page: 1, category: cat.id, stock_status: 'instock' },
+          params : addWooAuth({ per_page: 1, category: cat.id, stock_status: 'instock' }),
           timeout: 10000,
           auth: {
           username: consumerKeyWC,
@@ -639,12 +639,12 @@ async function syncCategoryProducts(categoryId) {
 
     while (true) {
       const response = await apiAxios.get('products', {
-        params: {
+        params: addWooAuth({
           per_page: 100,
           page: page,
           category: categoryId,
           min_price: 1
-        },
+        }),
         timeout: 10000,
         auth: {
           username: consumerKeyWC,
@@ -915,22 +915,13 @@ app.get('/getCategoriesProduct', async (req, res) => {
       console.log("Fetching products for category:", category, "Page:", page);
 
       const response = await apiAxios.get('products', {
-        params: {
+        params: addWooAuth({
           per_page: limit,
           page: page,
           category: category,
-          min_price: 1
-        },
-        auth: {
-          username: consumerKeyWC,
-          password: consumerSercretWC
-        },
+          min_price: 1,
+        }),
         timeout: 10000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-            '(KHTML, like Gecko) Chrome/118.0.5993.90 Safari/537.36',
-          'Accept': 'application/json'
-        }
       });
 
       const products = response.data;
@@ -973,24 +964,13 @@ app.get('/getCategoriesProductOld', async (req, res) => {
 
     console.log("Fetching products for category:", category, "Page:", page);
 
-    const response = await axios.get('https://updateavenues.com/wp-json/wc/v3/products', {
-      params: {
+    const response = await axios.get('products', {
+      params: addWooAuth({
         per_page: limit,
         page: Math.floor(skip / limit) + 1,
         category: category,
         min_price: 1,
-        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
-      },
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://updateavenues.com/',
-        'Origin': 'https://updateavenues.com'
-      },
-      httpsAgent: new (require('https').Agent)({  
-        rejectUnauthorized: false
-      })
+      }),
     });
 
     const products = response.data;
@@ -1257,14 +1237,14 @@ app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
     }
 
     console.log('⚠️ Category cache empty — fetching directly for fast response...');
-    const categoryRes = await apiAxios.get('products/categories', { params: { per_page: 100 }, timeout: 10000 });
+    const categoryRes = await apiAxios.get('products/categories', { params: addWooAuth({ per_page: 100 }), timeout: 10000 });
     const allCategories = categoryRes.data;
 
     const categoriesWithImage = await Promise.all(
       allCategories.map(async (cat) => {
         try {
           const productRes = await apiAxios.get('products', {
-            params: { per_page: 1, category: cat.id, stock_status: 'instock' },
+            params: addWooAuth({ per_page: 1, category: cat.id, stock_status: 'instock' }),
             timeout: 10000
           });
           const product = productRes.data[0];
@@ -1302,11 +1282,11 @@ app.get('/getAllCategoriesWithOneProductImageOld', async (req, res) => {
     const filteredCategories = await Promise.all(categories.map(async (cat) => {
       try {
         const productRes = await apiAxios.get('products', {
-          params: {
+          params: addWooAuth({
             per_page: 1,
             category: cat.id,
             stock_status: 'instock',
-          },
+          }),
           timeout: 10000
         });
 
