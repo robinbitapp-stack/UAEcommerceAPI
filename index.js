@@ -9,8 +9,8 @@ require('dotenv').config();
 const { Redis } = require('@upstash/redis');
 
 //API
-const consumerKeyWC = 'ck_b43e50e28e367660064b96ca7b43e17f651b2832';
-const consumerSercretWC = 'cs_c5728578585c230138d174d8fdf91b502af0087c';
+const consumerKeyWC = 'ck_7647b84ee4dba7403ce4bd080710248497d2a89f';
+const consumerSercretWC = 'cs_8d77cb29de49d40dcdf94007867576ae5f65dd0b';
 
 const api = new WooCommerceRestApi({
   url: 'https://updateavenues.com', 
@@ -1735,44 +1735,55 @@ app.get('/debug-api', async (req, res) => {
   const tests = [
     {
       name: 'Basic WordPress API',
-      url: 'https://updateavenues.com/wp-json/'
+      url: 'https://updateavenues.com/wp-json/',
+      auth: false
     },
     {
-      name: 'WooCommerce Products (No Auth)',
-      url: 'https://updateavenues.com/wp-json/wc/v3/products?per_page=1'
+      name: 'WooCommerce Products (With Basic Auth)',
+      url: 'https://updateavenues.com/wp-json/wc/v3/products?per_page=1',
+      auth: true
     },
     {
-      name: 'WooCommerce with Query Auth',
-      url: 'https://updateavenues.com/wp-json/wc/v3/products?per_page=1&consumer_key=ck_b43e50e28e367660064b96ca7b43e17f651b2832&consumer_secret=cs_c5728578585c230138d174d8fdf91b502af0087c'
-    },
-    {
-      name: 'WooCommerce Categories',
-      url: 'https://updateavenues.com/wp-json/wc/v3/products/categories?per_page=1'
+      name: 'WooCommerce Categories (With Basic Auth)',
+      url: 'https://updateavenues.com/wp-json/wc/v3/products/categories?per_page=1',
+      auth: true
     }
   ];
 
   const results = [];
-  
+
   for (const test of tests) {
     try {
       const response = await axios.get(test.url, {
         timeout: 10000,
+        ...(test.auth && {
+          auth: {
+            username: consumerKeyWC,
+            password: consumerSercretWC
+          }
+        }),
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'WooCommerce-API-Debugger'
         }
       });
+
       results.push({
         test: test.name,
         status: '✅ WORKING',
         statusCode: response.status,
-        data: response.data ? 'Has data' : 'No data'
+        dataType: Array.isArray(response.data)
+          ? `Array (${response.data.length})`
+          : typeof response.data
       });
     } catch (error) {
       results.push({
         test: test.name,
-        status: '❌ FAILED', 
-        error: error.message,
-        statusCode: error.response?.status
+        status: '❌ FAILED',
+        statusCode: error.response?.status || 'NO_RESPONSE',
+        error:
+          error.response?.data?.message ||
+          error.message ||
+          'Unknown error'
       });
     }
   }
