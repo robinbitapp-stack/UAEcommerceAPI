@@ -25,8 +25,8 @@ const { apiAxios, addWooAuth } = require('./woocommerce');
 const apiAxio = axios.create({
   baseURL: 'https://updateavenues.com/wp-json/wc/v3/',
   auth: {
-    username: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-    password: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+    username: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+    password: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
   }
 });
 
@@ -591,8 +591,8 @@ async function syncWooCategories(caller = 'unknown') {
     const categoryRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products/categories', {
       params: {
         per_page: 100,
-        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+        consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+        consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
       },
       timeout: 10000,
       headers: {
@@ -674,8 +674,8 @@ async function syncCategoryProducts(categoryId) {
               page: page,
               category: categoryId,
               min_price: 1,
-              consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-              consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+              consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+              consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
             },
             timeout: 30000,
             headers: {
@@ -1044,8 +1044,8 @@ app.get('/getCategoriesProduct', async (req, res) => {
         page: page,
         category: category,
         min_price: 1,
-        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+        consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+        consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
         },
         timeout: 10000,
         headers: {
@@ -1114,8 +1114,8 @@ app.get('/getCategoriesProductOld', async (req, res) => {
         page: Math.floor(skip / limit) + 1,
         category: category,
         min_price: 1,
-        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+        consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+        consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
       },
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -1424,8 +1424,8 @@ app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
     const categoryRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products/categories', {
       params: {
         per_page: 100,
-        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+        consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+        consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
       },
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -1451,8 +1451,8 @@ app.get('/getAllCategoriesWithOneProductImage', async (req, res) => {
             params: {
               per_page: 1,
               category: cat.id,
-              consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-              consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+              consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+              consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
             },
             timeout: 10000,
             headers: {
@@ -1499,8 +1499,8 @@ app.get('/getAllCategoriesWithOneProductImageOld', async (req, res) => {
     const categoryRes = await axios.get('https://updateavenues.com/wp-json/wc/v3/products/categories', {
       params: {
         per_page: 100,
-        consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-        consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+        consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+        consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
       },
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -1530,8 +1530,8 @@ app.get('/getAllCategoriesWithOneProductImageOld', async (req, res) => {
           params: {
             per_page: 1,
             category: cat.id,
-            consumer_key: 'ck_bb500a1fb70b1094d43fd85296ad10c5dada160b',
-            consumer_secret: 'cs_b7232701e74d5e22fe79c70b312e36acb4d8757a'
+            consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+            consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
           },
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
