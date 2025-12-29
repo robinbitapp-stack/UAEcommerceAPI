@@ -18,8 +18,8 @@ const apiAxios = axios.create({
 function addWooAuth(params = {}) {
   return {
     ...params,
-    consumer_key: 'ck_7647b84ee4dba7403ce4bd080710248497d2a89f',
-    consumer_secret: 'cs_8d77cb29de49d40dcdf94007867576ae5f65dd0b'
+    consumer_key: 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36',
+    consumer_secret: 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e'
   };
 }
 

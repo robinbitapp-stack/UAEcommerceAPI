@@ -9,8 +9,8 @@ require('dotenv').config();
 const { Redis } = require('@upstash/redis');
 
 //API
-const consumerKeyWC = 'ck_7647b84ee4dba7403ce4bd080710248497d2a89f';
-const consumerSercretWC = 'cs_8d77cb29de49d40dcdf94007867576ae5f65dd0b';
+const consumerKeyWC = 'ck_46c9004d79a72dc4ec58e4306fe2635374643a36';
+const consumerSercretWC = 'cs_c4c8727963b370e9ab6824e7f525b2af47effc3e';
 
 const api = new WooCommerceRestApi({
   url: 'https://updateavenues.com', 
