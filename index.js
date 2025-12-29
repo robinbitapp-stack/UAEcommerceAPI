@@ -9,8 +9,8 @@ require('dotenv').config();
 const { Redis } = require('@upstash/redis');
 
 //API
-const consumerKeyWC = 'ck_26523d9e31115668fbd9e4552c5a44e5f453ad28';
-const consumerSercretWC = 'cs_e70f1004827cd014c9da574f100f6decf4d2e44f';
+const consumerKeyWC = 'ck_b43e50e28e367660064b96ca7b43e17f651b2832';
+const consumerSercretWC = 'cs_c5728578585c230138d174d8fdf91b502af0087c';
 
 const api = new WooCommerceRestApi({
   url: 'https://updateavenues.com', 
@@ -1743,7 +1743,7 @@ app.get('/debug-api', async (req, res) => {
     },
     {
       name: 'WooCommerce with Query Auth',
-      url: 'https://updateavenues.com/wp-json/wc/v3/products?per_page=1&consumer_key=ck_26523d9e31115668fbd9e4552c5a44e5f453ad28&consumer_secret=cs_e70f1004827cd014c9da574f100f6decf4d2e44f'
+      url: 'https://updateavenues.com/wp-json/wc/v3/products?per_page=1&consumer_key=ck_b43e50e28e367660064b96ca7b43e17f651b2832&consumer_secret=cs_c5728578585c230138d174d8fdf91b502af0087c'
     },
     {
       name: 'WooCommerce Categories',
